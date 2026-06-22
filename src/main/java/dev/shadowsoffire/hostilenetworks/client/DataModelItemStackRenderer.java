@@ -11,13 +11,14 @@ import dev.shadowsoffire.hostilenetworks.item.DataModelItem;
 import dev.shadowsoffire.hostilenetworks.util.ClientEntityCache;
 import dev.shadowsoffire.hostilenetworks.util.DisplayEntity;
 import dev.shadowsoffire.placebo.reload.DynamicHolder;
+import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
-import net.minecraft.client.renderer.ItemBlockRenderTypes;
-import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.*;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.client.renderer.entity.ItemRenderer;
 import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.client.resources.model.ModelBakery;
 import net.minecraft.client.resources.model.ModelResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -26,12 +27,39 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.SequencedMap;
+
+import static net.minecraft.client.renderer.RenderType.entityGlint;
+
 public class DataModelItemStackRenderer extends BlockEntityWithoutLevelRenderer {
 
     public DataModelItemStackRenderer() {
         super(Minecraft.getInstance().getBlockEntityRenderDispatcher(), Minecraft.getInstance().getEntityModels());
     }
 
+    private static final SectionBufferBuilderPack fixedBufferPack = new SectionBufferBuilderPack();
+    private static final SequencedMap<RenderType, ByteBufferBuilder> sequencedmap = Util.make(new Object2ObjectLinkedOpenHashMap<>(), map -> {
+        map.put(Sheets.solidBlockSheet(), fixedBufferPack.buffer(RenderType.solid()));
+        map.put(Sheets.cutoutBlockSheet(), fixedBufferPack.buffer(RenderType.cutout()));
+        map.put(Sheets.bannerSheet(), fixedBufferPack.buffer(RenderType.cutoutMipped()));
+        map.put(Sheets.translucentCullBlockSheet(), fixedBufferPack.buffer(RenderType.translucent()));
+        put(map, Sheets.shieldSheet());
+        put(map, Sheets.bedSheet());
+        put(map, Sheets.shulkerBoxSheet());
+        put(map, Sheets.signSheet());
+        put(map, Sheets.hangingSignSheet());
+        map.put(Sheets.chestSheet(), new ByteBufferBuilder(786432));
+        put(map, RenderType.armorEntityGlint());
+        put(map, RenderType.glint());
+        put(map, RenderType.glintTranslucent());
+        put(map, entityGlint());
+        put(map, RenderType.entityGlintDirect());
+        put(map, RenderType.waterMask());
+        ModelBakery.DESTROY_TYPES.forEach(renderType
+                -> put(map, renderType));
+    });
+    private static final MultiBufferSource.BufferSource GHOST_ENTITY_BUF =
+            MultiBufferSource.immediateWithBuffers(sequencedmap, new ByteBufferBuilder(256));
     private static final ModelResourceLocation DATA_MODEL_BASE = ModelResourceLocation.standalone(HostileNetworks.loc("item/data_model_base"));
 
     @Override
@@ -64,12 +92,8 @@ public class DataModelItemStackRenderer extends BlockEntityWithoutLevelRenderer 
             matrix.scale(scale, scale, scale);
             matrix.translate(0.775, 0, -0.0825);
         }
-        irenderer.renderModelLists(base, stack, light, overlay, matrix, ItemRenderer.getFoilBufferDirect(buf,
-                ItemBlockRenderTypes.getRenderType(stack, true), true, false));
-        if (!(buf instanceof MultiBufferSource.BufferSource source)) {
-            return;
-        }
-        source.endBatch();
+        irenderer.renderModelLists(base, stack, light, overlay, matrix, ItemRenderer.getFoilBufferDirect(GHOST_ENTITY_BUF, ItemBlockRenderTypes.getRenderType(stack, true), true, false));
+        GHOST_ENTITY_BUF.endBatch();
         matrix.popPose();
         DynamicHolder<DataModel> model = DataModelItem.getStoredModel(stack);
         if (model.isBound()) {
@@ -79,14 +103,13 @@ public class DataModelItemStackRenderer extends BlockEntityWithoutLevelRenderer 
                 ent.tickCount = Minecraft.getInstance().player.tickCount;
             }
             if (ent != null) {
-                renderEntityInInventory(matrix, type, ent, display, source);
+                renderEntityInInventory(matrix, type, ent, display);
             }
         }
     }
 
     @SuppressWarnings("deprecation")
-    public static void renderEntityInInventory(PoseStack matrix, ItemDisplayContext type, Entity entity, DisplayEntity display,
-                                               MultiBufferSource.BufferSource source) {
+    public static void renderEntityInInventory(PoseStack matrix, ItemDisplayContext type, Entity entity, DisplayEntity display) {
         matrix.pushPose();
         matrix.translate(0.5, 0.5, 0.5);
         float scale = display.scale();
@@ -142,7 +165,7 @@ public class DataModelItemStackRenderer extends BlockEntityWithoutLevelRenderer 
 
         EntityRenderDispatcher entityrenderermanager = Minecraft.getInstance().getEntityRenderDispatcher();
         entityrenderermanager.setRenderShadow(false);
-        MultiBufferSource.BufferSource rtBuffer = source;
+        MultiBufferSource.BufferSource rtBuffer = GHOST_ENTITY_BUF;
         WeirdRenderThings.translucent = true;
         RenderSystem.runAsFancy(() -> {
             entityrenderermanager.render(entity, display.xOffset(), display.yOffset(), display.zOffset(), 0.0F, Minecraft.getInstance().getTimer().getGameTimeDeltaPartialTick(true), matrix,
@@ -153,5 +176,10 @@ public class DataModelItemStackRenderer extends BlockEntityWithoutLevelRenderer 
         entityrenderermanager.setRenderShadow(true);
         matrix.popPose();
     }
+
+    private static void put(Object2ObjectLinkedOpenHashMap<RenderType, ByteBufferBuilder> pMapBuilders, RenderType pRenderType) {
+        pMapBuilders.put(pRenderType, new ByteBufferBuilder(pRenderType.bufferSize()));
+    }
+
 
 }
